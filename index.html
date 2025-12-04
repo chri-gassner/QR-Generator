@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- QR-Code Library -->
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <style>
         :root {
@@ -138,7 +138,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #020617;
+            background: white;
             border-radius: 12px;
             border: 1px dashed rgba(148, 163, 184, 0.6);
             margin-bottom: 10px;
@@ -146,9 +146,10 @@
             overflow: hidden;
         }
 
-        #qr-preview svg {
-            width: 100%;
-            height: 100%;
+        #qr-preview canvas,
+        #qr-preview img {
+            max-width: 100%;
+            max-height: 100%;
         }
 
         #qr-placeholder {
@@ -156,6 +157,9 @@
             font-size: .8rem;
             color: #9ca3af;
             padding: 0 8px;
+            background: #020617;
+            border-radius: 8px;
+            padding: 20px;
         }
 
         .download-row {
@@ -211,7 +215,7 @@
 <body>
 <div class="app">
     <h1>QR-Code Generator</h1>
-    <p>Gib eine URL ein, generiere den QR-Code im Browser und lade ihn als PNG, JPG oder SVG herunter.</p>
+    <p>Gib eine URL ein, generiere den QR-Code im Browser und lade ihn als PNG herunter.</p>
 
     <label for="url-input">URL</label>
     <div class="input-row">
@@ -224,17 +228,12 @@
             <div id="qr-preview">
                 <div id="qr-placeholder">
                     Noch kein QR-Code.<br>
-                    Gib oben eine URL ein und klicke auf „Erzeugen“.
+                    Gib oben eine URL ein und klicke auf „Erzeugen".
                 </div>
             </div>
 
-            <!-- versteckte Canvas für PNG/JPG -->
-            <canvas id="qr-canvas" style="display:none;"></canvas>
-
             <div class="download-row">
                 <button id="download-png" disabled>PNG<br><span>Download</span></button>
-                <button id="download-jpg" disabled>JPG<br><span>Download</span></button>
-                <button id="download-svg" disabled>SVG<br><span>Download</span></button>
             </div>
         </div>
         <div id="status" class="status">Bereit.</div>
@@ -246,20 +245,13 @@
     const generateBtn = document.getElementById("generate-btn");
     const qrPreview = document.getElementById("qr-preview");
     const qrPlaceholder = document.getElementById("qr-placeholder");
-    const qrCanvas = document.getElementById("qr-canvas");
     const statusEl = document.getElementById("status");
-
     const btnPng = document.getElementById("download-png");
-    const btnJpg = document.getElementById("download-jpg");
-    const btnSvg = document.getElementById("download-svg");
 
-    let currentText = "";
-    let currentSvgString = "";
+    let qrCodeInstance = null;
 
     function setButtonsEnabled(enabled) {
         btnPng.disabled = !enabled;
-        btnJpg.disabled = !enabled;
-        btnSvg.disabled = !enabled;
     }
 
     function setStatus(message, isError = false) {
@@ -267,7 +259,7 @@
         statusEl.classList.toggle("error", isError);
     }
 
-    async function generateQR() {
+    function generateQR() {
         const raw = urlInput.value.trim();
 
         if (!raw) {
@@ -288,59 +280,18 @@
         setStatus("Erzeuge QR-Code …", false);
 
         try {
-            currentText = value;
-
-            // Canvas (für PNG/JPG)
-            await new Promise((resolve, reject) => {
-                QRCode.toCanvas(
-                    qrCanvas,
-                    currentText,
-                    {
-                        width: 512,
-                        margin: 1,
-                        color: {
-                            dark: "#000000",
-                            light: "#ffffff"
-                        }
-                    },
-                    function (error) {
-                        if (error) reject(error);
-                        else resolve();
-                    }
-                );
-            });
-
-            // SVG (für Anzeige + Download)
-            currentSvgString = await new Promise((resolve, reject) => {
-                QRCode.toString(
-                    currentText,
-                    {
-                        type: "svg",
-                        margin: 1,
-                        color: {
-                            dark: "#000000",
-                            light: "#ffffff"
-                        }
-                    },
-                    function (error, svgString) {
-                        if (error) reject(error);
-                        else resolve(svgString);
-                    }
-                );
-            });
-
-            // Vorschau aktualisieren
+            // Alte QR-Code-Instanz entfernen
             qrPreview.innerHTML = "";
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = currentSvgString;
-            const svgElement = wrapper.firstElementChild;
-            if (svgElement) {
-                svgElement.setAttribute("width", "100%");
-                svgElement.setAttribute("height", "100%");
-                qrPreview.appendChild(svgElement);
-            } else {
-                qrPreview.appendChild(qrPlaceholder);
-            }
+
+            // Neuen QR-Code erstellen
+            qrCodeInstance = new QRCode(qrPreview, {
+                text: value,
+                width: 200,
+                height: 200,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
 
             setButtonsEnabled(true);
             setStatus("QR-Code wurde erzeugt.");
@@ -348,33 +299,36 @@
             console.error(err);
             setStatus("Fehler beim Erzeugen des QR-Codes.", true);
             setButtonsEnabled(false);
+            qrPreview.innerHTML = "";
+            qrPreview.appendChild(qrPlaceholder);
         } finally {
             generateBtn.disabled = false;
         }
     }
 
-    function downloadFromCanvas(mimeType, filename) {
-        if (!currentText) return;
-        const dataUrl = qrCanvas.toDataURL(mimeType);
-        const a = document.createElement("a");
-        a.href = dataUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    }
+    function downloadPNG() {
+        const canvas = qrPreview.querySelector("canvas");
+        if (!canvas) {
+            setStatus("Kein QR-Code zum Download verfügbar.", true);
+            return;
+        }
 
-    function downloadSvg() {
-        if (!currentSvgString) return;
-        const blob = new Blob([currentSvgString], { type: "image/svg+xml" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "qr-code.svg";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        try {
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "qr-code.png";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setStatus("PNG wurde heruntergeladen.");
+            }, "image/png");
+        } catch (err) {
+            console.error(err);
+            setStatus("Fehler beim Download.", true);
+        }
     }
 
     generateBtn.addEventListener("click", generateQR);
@@ -385,9 +339,7 @@
         }
     });
 
-    btnPng.addEventListener("click", () => downloadFromCanvas("image/png", "qr-code.png"));
-    btnJpg.addEventListener("click", () => downloadFromCanvas("image/jpeg", "qr-code.jpg"));
-    btnSvg.addEventListener("click", downloadSvg);
+    btnPng.addEventListener("click", downloadPNG);
 </script>
 </body>
 </html>
